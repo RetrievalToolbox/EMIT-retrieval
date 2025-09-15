@@ -296,7 +296,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
     function generate_plevels(psurf)
         return vcat(
             collect(LinRange(0.01u"hPa", 200.0u"hPa", 6)),
-            collect(LinRange(300.0u"hPa", psurf, 15))
+            collect(LinRange(300.0u"hPa", psurf, 5))
         )
     end
 
@@ -351,7 +351,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
         Unitful.NoUnits,
         1.0,
         1.0,
-        1.0e-1
+        1.0
     )
 
     #= Uncomment for CO2
@@ -373,7 +373,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
         Unitful.NoUnits,
         1.0,
         1.0,
-        1.0e-2
+        1.0
     )
 
     # Retrieve a polynomial for the Lambertian surface albedo
@@ -595,7 +595,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
             albedo_prior = pi * signal / (
                 solar_strength_guess[swin] * cosd(buf.scene.solar_zenith)) * rad_unit_fac
 
-            for (sve_idx, sve) in RE.StateVectorIterator( # lopp through all albedo SVEs
+            for (sve_idx, sve) in RE.StateVectorIterator( # loop through all albedo SVEs
                 state_vector, RE.SurfaceAlbedoPolynomialSVE)
                 if sve.coefficient_order == 0
                     sve.first_guess = albedo_prior
@@ -688,6 +688,8 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
         maxrad_result[idx] = maximum(RE.get_modeled(solver))
         psurf_result[idx] = buf.scene.atmosphere.pressure_levels[end]
 
+        CH4_result[idx] = RE.calculate_xgas(buf.scene.atmosphere)["CH4"] |> u"ppb" |> ustrip
+        #=
         # Store the CH4 as column-integrated value in units of ppm * m!
         CH4_result[idx] = 0.0
 
@@ -705,14 +707,13 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
             # [(Δ altitude) * (layer mean VMR)] in ppm m
             CH4_result[idx] += (a1 - a2) * 0.5 * (m2 + m1) |> u"ppm * m" |> ustrip
         end
-
+        =#
     end
 
     # After the retrievals are done, ROOT must wait here for all other processes to
     # gather the retrieval results.
     ROOT_waits(root_waits_channel, ROOT)
     wait_on_ROOT(wait_on_root_channel, ROOT)
-
 
     #=
         Gather results!
@@ -779,11 +780,11 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
             saving the data accroding to the glt_x, glt_y
         =#
 
-        nc = NCDataset(nc_fname, "r")
+        #nc = NCDataset(nc_fname, "r")
 
-        glt_x = nc.group["location"]["glt_x"][:,:]
-        glt_y = nc.group["location"]["glt_y"][:,:]
-
+        #glt_x = nc.group["location"]["glt_x"][:,:]
+        #glt_y = nc.group["location"]["glt_y"][:,:]
+        #=
         # Allocate result output
         output = zeros(size(glt_x)...)
         for i in axes(glt_x, 1), j in axes(glt_x, 2)
@@ -803,7 +804,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
 
         # Set NaNs to nodatavalue
         output[isnan.(output)] .= -9999.0
-
+        =#
 
         #Save out
         h5 = h5open(args["output"], "w")
@@ -830,7 +831,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
 
         end
         =#
-        close(nc)
+        #close(nc)
 
     end
 
