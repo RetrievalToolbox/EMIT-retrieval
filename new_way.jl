@@ -286,7 +286,7 @@ function main()
         Unitful.NoUnits,
         1.0,
         1.0,
-        5.0
+        1.0
     )
 
     #= Uncomment for CO2
@@ -308,21 +308,17 @@ function main()
         Unitful.NoUnits,
         1.0,
         1.0,
-        1.0e-2
+        1.0e-1
     )
 
     # Retrieve a polynomial for the Lambertian surface albedo
     sv_surf = RE.SurfaceAlbedoPolynomialSVE[]
-    surf_order = 3
+    @everywhere surf_order = 3
 
     for (win_name, swin) in window_dict
         for o in 0:surf_order
 
-            if o == 0
-                fg = 0.25
-            else
-                fg = 0.0
-            end
+            o == 0 ? fg = 0.25 : fg = 0.0
 
             push!(sv_surf,
                 RE.SurfaceAlbedoPolynomialSVE(
@@ -341,8 +337,8 @@ function main()
     # Construct the state vector
     state_vector = RE.RetrievalStateVector([
         sv_ch4_scaler,
-        #sv_h2o_scaler,
-        sv_surf... # Expand list
+        sv_h2o_scaler,
+        sv_surf..., # Expand list
     ])
 
     @everywhere state_vector = $state_vector
@@ -434,7 +430,7 @@ function main()
     # EMIT noise model
     @everywhere function noise_model!(noise, rad, a, b, c)
         @turbo for i in eachindex(noise)
-            noise[i] = abs(sqrt(rad[i] + b[i]) * a[i] + c[i])
+            noise[i] = abs(a[i] * sqrt(rad[i] + b[i]) + c[i])
         end
 
         # Bump up negative noise to this (as per reference algorithm)
@@ -481,14 +477,21 @@ function main()
     # by all processes.
 
     result_keys = [
-        ("ALBEDO", Float32),
+        ("CONVERGED", Bool),
         ("CHI2", Float32),
         ("XCH4", Float32),
         ("CH4_SCALER", Float32),
         ("H2O_SCALER", Float32),
+        ("CH4_SCALER_UCERT", Float32),
+        ("H2O_SCALER_UCERT", Float32),
         ("XCH4_PRIOR", Float32),
-        ("ITERATIONS", Int)
+        ("ITERATIONS", Int),
+        ("SNR", Float32)
         ]
+
+    for i in 0:surf_order
+        push!(result_keys, ("ALBEDO_ORDER_$(i)", Float32))
+    end
 
     result_container = Dict{String, SharedArray}()
 
@@ -499,8 +502,11 @@ function main()
         if (key_type <: AbstractFloat)
             result_container[key][:,:] .= NaN
         end
-        if (key_type <: Integer)
+        if (key_type <: Integer) & (key_type != Bool) # (Bool <: Integer sadly..)
             result_container[key][:,:] .= -9999
+        end
+        if (key_type == Bool)
+            result_container[key][:,:] .= false
         end
 
     end
@@ -556,7 +562,6 @@ function main()
         gas_ch4.vmr_levels[:] .= ch4_prior
         gas_h2o.vmr_levels[:] .= h2o_prior
 
-
         result_container["XCH4_PRIOR"][idx] = (
             RE.calculate_xgas(buf.scene.atmosphere)["CH4"] |> u"ppb" |> ustrip
         )
@@ -573,6 +578,7 @@ function main()
             forward_model!,
             state_vector,
             Diagonal(RE.get_prior_covariance(state_vector)), # Prior covariance matrix - just use diagonal
+            #10.0, # Smaller steps..
             20, # number of iterations
             0.5, # dsigma scale
             dispersion_dict,
@@ -612,12 +618,20 @@ function main()
 
 
         iter_result = true
+        converged = false
 
         # ITERATE!
         while !(RE.check_convergence(solver)) # Loop until converged
 
             # Evaluate and produce next iteration state vector!
-            iter_result = RE.next_iteration!(solver; fm_kwargs)
+            try
+                iter_result = RE.next_iteration!(solver; fm_kwargs)
+            catch
+                # Something bad happened..
+                @info "ERROR during iteration."
+                iter_result = false
+                break
+            end
 
             # Skip if bad results occur
             if !iter_result
@@ -644,21 +658,24 @@ function main()
 
                 current = RE.get_current_value(sve)
 
-                if (current < 0.1)
-                    sve.iterations[end] = 0.1
-                end
+                #if (current < 0.85)
+                #    sve.iterations[end] = 0.85
+                #end
                 #if (current > 3.0) # Strong plumes might be 3x?
                 #    sve.iterations[end] = 3.0
                 #end
 
             end
 
-
         end
 
         # For a bad retrieval, just skip to the next scene
         if !iter_result
             continue
+        end
+
+        if RE.check_convergence(solver)
+            converged = true
         end
 
         # Update the atmosphere object
@@ -673,17 +690,26 @@ function main()
             state_vector
         )
 
+        # Do error analysis
+        q = RE.calculate_OE_quantities(solver)
+
+        if isnothing(q)
+            # If we can't do error analysis, something probably went wrong..
+            continue
+        end
 
         # Put results into container
+        result_container["CONVERGED"][idx] = converged
+        result_container["SNR"][idx] = mean(RE.get_measured(solver) ./ RE.get_noise(solver))
         result_container["CHI2"][idx] = collect(values(RE.calculate_chi2(solver)))[1]
         result_container["XCH4"][idx] = RE.calculate_xgas(buf.scene.atmosphere)["CH4"] |> u"ppb" |> ustrip
         result_container["ITERATIONS"][idx] = RE.get_iteration_count(solver)
 
         for (sve_idx, sve) in RE.StateVectorIterator(
             state_vector, RE.SurfaceAlbedoPolynomialSVE)
-            if sve.coefficient_order == 0
-                result_container["ALBEDO"][idx] = RE.get_current_value(sve)
-            end
+            o = sve.coefficient_order
+
+            result_container["ALBEDO_ORDER_$(o)"][idx] = RE.get_current_value(sve)
         end
 
         for (sve_idx, sve) in RE.StateVectorIterator(
@@ -692,7 +718,7 @@ function main()
             gname = sve.gas.gas_name
 
             result_container["$(gname)_SCALER"][idx] = RE.get_current_value(sve)
-
+            result_container["$(gname)_SCALER_UCERT"][idx] = q.SV_ucert[sve_idx]
         end
     end
 
@@ -701,7 +727,7 @@ function main()
 
         for key in keys(result_container)
             @info "Writing out $(key)"
-            h5out[key] = result_container[key]
+            h5out[key, compress=2] = result_container[key]
         end
 
     end
