@@ -1,3 +1,4 @@
 *.h5
-*.tiff
-*.ipynb
+*.tiff*
+*.ipynb*
+.DS_Store
