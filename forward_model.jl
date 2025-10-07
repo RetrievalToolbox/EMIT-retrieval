@@ -2,7 +2,6 @@ function forward_model!(
     SV::RE.AbstractStateVector;
     buf::RE.EarthAtmosphereBuffer,
     inst_buf::RE.InstrumentBuffer,
-    oe_buf::RE.OEBuffer,
     rt_buf::RE.ScalarRTBuffer,
     dispersions::Dict{<:RE.AbstractSpectralWindow, <:RE.AbstractDispersion},
     isrf_dict::Dict{<:RE.AbstractDispersion, <:RE.AbstractISRF},
@@ -60,7 +59,7 @@ function forward_model!(
     RE.atmosphere_element_statevector_update!(buf.scene.atmosphere.atm_elements, SV)
 
     # Calculate optical properties inside buffer
-    RE.calculate_earth_optical_properties!(buf, SV, N_sublayer=3)
+    RE.calculate_earth_optical_properties!(buf, SV, N_sublayer=7)
 
     # Perform RT
     for rt in values(buf.rt)
@@ -168,7 +167,6 @@ function forward_model!(
             @views jac.I[rt_buf.indices[swin]] *= 1.0 * buf.rt[swin].radiance_unit / rt_buf.radiance_unit
         end
     end
-
 
     # Important!
     # Re-set the atmosphere to its prior state!

@@ -1,210 +1,143 @@
-using ArchGDAL; const AG = ArchGDAL
-using ArgParse
-using CSV
-using DataFrames
-using Dates
-using DistributedData
-using HDF5
-using Interpolations
-using LinearAlgebra
-using LinRegOutliers
-using NCDatasets
-using Polynomials
-using ProgressMeter
-using Statistics
-using StatsBase
-using Unitful
+using Distributed
 
-using RetrievalToolbox; const RE = RetrievalToolbox
+# Load modules everywhere
+@everywhere begin
+
+    using ArchGDAL; const AG = ArchGDAL
+    using ArgParse
+    using CSV
+    using DataFrames
+    using Dates
+    using DistributedData
+    using HDF5
+    using Interpolations
+    using LinearAlgebra
+    using LoopVectorization
+    using NCDatasets
+    using Polynomials
+    using ProgressMeter
+    using SharedArrays
+    using Statistics
+    using StatsBase
+    using Unitful
+
+    using RetrievalToolbox; const RE = RetrievalToolbox
+
+    include("args.jl")
+    include("helpers.jl")
+    include("forward_model.jl")
+
+end
 
 
-include("args.jl")
-include("helpers.jl")
-include("forward_model.jl")
-
-function main(root_waits_channel, wait_on_root_channel, ARGS_in)
+function main()
 
 
-    args = process_args(ARGS_in)
+    # Process cmd line arguments
+    args = process_args(ARGS)
 
-    # Define the root process to be the one with myid() == 1, but
-    # any other number <= numprocs() should in theory work too..
-    ROOT = 1
+    # Read the noise coefficients from TXT file
+    noise_csv = CSV.File(
+        "data/emit_noise.txt", skipto=2,
+        header=["wl", "a", "b", "c", "rmse"]
+    )
+
 
     #=
-        Initial data read-ins and scattering to all processes
-        This is wrapped into a sync because the following code must
-        have all the needed symbols fetched at every remote worker.
+        Input file
+        ==========
 
-        The ROOT process does all of the data read-ins, and then sends the data over
-        to all others. Common data, where ALL processes need a copy of the data,
-        are stored at ROOT, and all other processes then take it from ROOT.
-
-        For data which varies from process to process (scene radiances etc.), they are
-        `save_at` the specific process.
-
+        Open the NC L1b file and read contents, distributing when needed
     =#
 
     nc_fname = args["L1B"]
+    nc_l1b = NCDataset(nc_fname)
 
-    @sync if myid() == ROOT
-        # Process ROOT reads from HD and then sends to others
+    # Store the shape of the image (needed for output)
+    nc_shape = size(nc_l1b.group["location"]["lon"])
 
-        # Read the noise coefficients
-        noise_csv = CSV.File(
-            "data/emit_noise.txt", skipto=2,
-            header=["wl", "a", "b", "c", "rmse"]
-        )
-        # Make it shareable
-        save_at(ROOT, :noise_csv, noise_csv)
+    # Read wavelength and send to others
+    wavelengths = nc_l1b.group["sensor_band_parameters"]["wavelengths"].var[:] |> SharedArray
+    @everywhere wavelengths = $wavelengths
 
-        # Open the NC L1b file
-        nc_l1b = NCDataset(nc_fname)
+    # Read ISRF FWHMs (needed later for creation of ISRFs)
+    fwhms = nc_l1b.group["sensor_band_parameters"]["fwhm"].var[:]
 
-        # Store the shape of the image (needed for output)
-        global nc_shape = size(nc_l1b.group["location"]["lon"])
+    # Granule start time
+    time_coverage_start = nc_l1b.attrib["time_coverage_start"]
 
-        # Read wavelength and send to others
-        wavelengths = nc_l1b.group["sensor_band_parameters"]["wavelengths"].var[:]
-        save_at(ROOT, :wavelengths, wavelengths)
+    lon_bounds = [-180., 180.]
+    if !isnothing(args["lon_bounds"])
 
-        # Granule start time
-        time_coverage_start = nc_l1b.attrib["time_coverage_start"]
-        save_at(ROOT, :time_coverage_start, time_coverage_start)
-
-        # Read ISRF FWHMs and send to others
-        fwhms = nc_l1b.group["sensor_band_parameters"]["fwhm"].var[:]
-        save_at(ROOT, :fwhms, fwhms)
-
-        lon_bounds = [-180., 180.]
-        if !isnothing(args["lon_bounds"])
-
-            try
-                lon_bounds = sort(parse.(Ref(Float64),
-                    split(args["lon_bounds"], ",")))
-            catch
-                @error "Could not parse longitude bounds!"
-                exit(1)
-            end
+        try
+            lon_bounds = sort(parse.(Ref(Float64),
+                split(args["lon_bounds"], ",")))
+        catch
+            @error "Could not parse longitude bounds!"
+            exit(1)
         end
-
-        lat_bounds = [-90., 90.]
-        if !isnothing(args["lat_bounds"])
-            try
-                lat_bounds = sort(parse.(Ref(Float64),
-                    split(args["lat_bounds"], ",")))
-            catch
-                @error "Could not parse latitude bounds!"
-                exit(1)
-            end
-        end
-
-
-        # Read all Lat/Lon/Alt
-        nc_lon = nc_l1b.group["location"]["lon"][:,:]
-        nc_lat = nc_l1b.group["location"]["lat"][:,:]
-        nc_alt = nc_l1b.group["location"]["elev"][:,:]
-
-        nc_rad = nc_l1b["radiance"].var[:,:,:] # needs .var to ignore missing
-
-        # Sub-set
-        all_scene_idx = findall(
-            (nc_lon .> lon_bounds[1]) .&
-            (nc_lon .< lon_bounds[2]) .&
-            (nc_lat .> lat_bounds[1]) .&
-            (nc_lat .< lat_bounds[2])
-            )
-
-        # Split up the subset so every process gets something to do
-        # (global because this is needed later on by ROOT to collect results)
-        global all_proc_scene_idx = distribute_work(all_scene_idx)
-
-        # Save each subset at other processes
-        for p in 1:nprocs()
-            this_idx = all_proc_scene_idx[p]
-
-            save_at(p, :my_scene_idx, all_proc_scene_idx[p])
-            save_at(p, :my_scene_lons, nc_lon[this_idx])
-            save_at(p, :my_scene_lats, nc_lat[this_idx])
-            save_at(p, :my_scene_alts, nc_alt[this_idx])
-            save_at(p, :my_scene_rads, nc_rad[:, this_idx])
-
-        end
-
-        # Close the L1B file
-        close(nc_l1b)
-
-        # Create the solar model
-        solar_model = RE.TSISSolarModel(
-            "data/hybrid_reference_spectrum_p005nm_resolution_c2022-11-30_with_unc.nc",
-            spectral_unit=:Wavelength
-        )
-        save_at(ROOT, :solar_model, solar_model)
-
-        # Create the spectroscopy objects
-        ABSCO_CH4 = RE.load_ABSCOAER_spectroscopy(
-            "data/CH4_04000-05250_v0.0_init.nc";
-            spectral_unit=:Wavelength, distributed=true
-        )
-        save_at(ROOT, :ABSCO_CH4, ABSCO_CH4)
-
-        #= Add this later for CO2 retrievals
-        ABSCO_CO2 = RE.load_ABSCOAER_spectroscopy(
-            "data/CO2_04000-05250_v0.0_init.nc";
-            spectral_unit=:Wavelength, distributed=true
-        )
-        save_at(ROOT, :ABSCO_CO2, ABSCO_CO2)
-        =#
-
-        ABSCO_H2O = RE.load_ABSCOAER_spectroscopy(
-            "data/H2O_04000-05250_v0.0_init.nc";
-            spectral_unit=:Wavelength, distributed=true
-        )
-        save_at(ROOT, :ABSCO_H2O, ABSCO_H2O)
     end
 
-    # This barrier is needed for the next chunk where each process grabs the values
-    # from itself that ROOT must put there first.
-    wait_on_ROOT(wait_on_root_channel, ROOT)
-    ROOT_waits(root_waits_channel, ROOT)
-    println("Synchronization point after ROOT prepares data.")
+    lat_bounds = [-90., 90.]
+    if !isnothing(args["lat_bounds"])
+        try
+            lat_bounds = sort(parse.(Ref(Float64),
+                split(args["lat_bounds"], ",")))
+        catch
+            @error "Could not parse latitude bounds!"
+            exit(1)
+        end
+    end
 
-    # Resolve process-issued data previously sent via by "save_at"
-    my_scene_idx = get_val_from(myid(), :my_scene_idx)
-    my_scene_lons = get_val_from(myid(), :my_scene_lons)
-    my_scene_lats = get_val_from(myid(), :my_scene_lats)
-    my_scene_alts = get_val_from(myid(), :my_scene_alts)
-    my_scene_rads = get_val_from(myid(), :my_scene_rads)
+    # Read all Lat/Lon/Alt
+    nc_lon = replace(nc_l1b.group["location"]["lon"][:,:], missing => NaN) |> SharedArray
+    @everywhere nc_lon = $nc_lon
 
-    # Take data that was saved by root process
-    noise_csv = get_val_from(ROOT, :noise_csv)
-    wavelengths = get_val_from(ROOT, :wavelengths)
-    time_coverage_start = get_val_from(ROOT, :time_coverage_start)
-    fwhms = get_val_from(ROOT, :fwhms)
+    nc_lat = replace(nc_l1b.group["location"]["lat"][:,:], missing => NaN) |> SharedArray
+    @everywhere nc_lat = $nc_lat
 
-    solar_model = get_val_from(ROOT, :solar_model)
+    nc_alt = replace(nc_l1b.group["location"]["elev"][:,:], missing => NaN) |> SharedArray
+    @everywhere nc_alt = $nc_alt
 
-    ABSCO_CH4 = get_val_from(ROOT, :ABSCO_CH4)
-    #ABSCO_CO2 = get_val_from(ROOT, :ABSCO_CO2) # add this later for CO2 retrievals
-    ABSCO_H2O = get_val_from(ROOT, :ABSCO_H2O)
+    # needs .var to ignore missing
+    nc_rad = replace(nc_l1b["radiance"][:,:,:], missing => NaN) |> SharedArray
+    @everywhere nc_rad = $nc_rad
 
-    # Let all procs catch up (need to have all data moved across before we can move on)
-    wait_on_ROOT(wait_on_root_channel, ROOT)
-    ROOT_waits(root_waits_channel, ROOT)
-    println("Synchronization point after retrieving data.")
+    # Sub-set (can be handled my main process only)
+    all_scene_idx = findall(
+        (nc_lon .> lon_bounds[1]) .&
+        (nc_lon .< lon_bounds[2]) .&
+        (nc_lat .> lat_bounds[1]) .&
+        (nc_lat .< lat_bounds[2])
+        )
 
-    #=
-        Single-process part
-        ===================
+    # Close the L1B file
+    close(nc_l1b)
 
-        From here on, the rest of the program can continue in single-process fashion;
-        each process now has all the data needed to process the dataset it was given.
+    # Create the solar model
+    solar_model = RE.TSISSolarModel(
+        "data/hybrid_reference_spectrum_p005nm_resolution_c2022-11-30_with_unc.nc",
+        spectral_unit=:Wavelength
+    )
 
+    # Create the spectroscopy objects
+    ABSCO_CH4 = RE.load_ABSCOAER_spectroscopy(
+        "data/CH4_04000-05250_v0.0_init.nc";
+        spectral_unit=:Wavelength, distributed=true
+    )
+
+    #= Add this later for CO2 retrievals
+    ABSCO_CO2 = RE.load_ABSCOAER_spectroscopy(
+        "data/CO2_04000-05250_v0.0_init.nc";
+        spectral_unit=:Wavelength, distributed=true
+    )
     =#
 
-    #=
-        Set up "global" definitions, derived from the data we have in hand
-    =#
+    ABSCO_H2O = RE.load_ABSCOAER_spectroscopy(
+        "data/H2O_04000-05250_v0.0_init.nc";
+        spectral_unit=:Wavelength, distributed=true
+    )
+
     Npix = length(wavelengths) # Number of bands
 
     # Produce linear noise interpolation for each coeff a,b,c
@@ -213,6 +146,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
         "b" => linear_interpolation(noise_csv.wl, noise_csv.b, extrapolation_bc=Line()),
         "c" => linear_interpolation(noise_csv.wl, noise_csv.c, extrapolation_bc=Line()),
     )
+    @everywhere noise_itps = $noise_itps
 
     #=
         Retrieval windows
@@ -230,11 +164,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
         u"nm"
     );
 
-    # Add more later if you want to, in case you want multi-band retrievals..
-
-
-
-    #=
+   #=
         Dispersion objects
         ==================
     =#
@@ -262,6 +192,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
         Build the ISRF table - we need a table since the ISRF changes with band/pixel
 
     =#
+
 
     Ndelta = 200
     wl_delta_unit = u"nm"
@@ -318,6 +249,9 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
     push!(gases, gas_h2o)
     #push!(gases, gas_co2)
 
+    @everywhere ch4_prior = $ch4_prior
+    @everywhere h2o_prior = $h2o_prior
+
     #=
         Atmosphere
         ==========
@@ -338,6 +272,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
 
     # Add gases to atmosphere
     push!(atm.atm_elements, gases...)
+
 
     #=
         State Vector
@@ -373,21 +308,17 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
         Unitful.NoUnits,
         1.0,
         1.0,
-        1.0
+        1.0e-1
     )
 
     # Retrieve a polynomial for the Lambertian surface albedo
     sv_surf = RE.SurfaceAlbedoPolynomialSVE[]
-    surf_order = 3
+    @everywhere surf_order = 3
 
     for (win_name, swin) in window_dict
         for o in 0:surf_order
 
-            if o == 0
-                fg = 0.25
-            else
-                fg = 0.0
-            end
+            o == 0 ? fg = 0.25 : fg = 0.0
 
             push!(sv_surf,
                 RE.SurfaceAlbedoPolynomialSVE(
@@ -407,8 +338,10 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
     state_vector = RE.RetrievalStateVector([
         sv_ch4_scaler,
         sv_h2o_scaler,
-        sv_surf... # Expand list
+        sv_surf..., # Expand list
     ])
+
+    @everywhere state_vector = $state_vector
 
 
     #=
@@ -474,6 +407,8 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
         [0., 0., 0.] # Satellite velocity
     )
 
+    @info "Spawning buffers everywhere.."
+    @everywhere buf = $buf
 
     #=
         Forward model definitions
@@ -490,16 +425,32 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
         solar_distance=1.0
         );
 
+    @everywhere fm_kwargs = $fm_kwargs
+
     # EMIT noise model
-    function noise_model(rad, a, b, c)
-        return @. abs(sqrt(rad + b) * a + c)
+    @everywhere function noise_model!(noise, rad, a, b, c)
+        @turbo for i in eachindex(noise)
+            noise[i] = abs(a[i] * sqrt(rad[i] + b[i]) + c[i])
+        end
+
+        # Bump up negative noise to this (as per reference algorithm)
+        noise[noise .<= 0] .= 1e-5
+
     end
+
+    # Pre-allocate a vector to contain the noise, so we don't have to do it over and over
+    @everywhere this_noise = zeros(size(nc_rad, 1))
+
+    # Pre-calculate the a,b,c as function of wavelength!
+    @everywhere noise_a = noise_itps["a"].(wavelengths)
+    @everywhere noise_b = noise_itps["b"].(wavelengths)
+    @everywhere noise_c = noise_itps["c"].(wavelengths)
 
     # Function to calculate pressure from elevation (valid only for this model atmosphere)
     # (we want this to obtain the surface pressure given the L1B elevation)
-    itp_logp_from_alt = linear_interpolation(
-        reverse(atm.altitude_levels),
-        log10.(reverse(atm.met_pressure_levels)),
+    @everywhere itp_logp_from_alt = linear_interpolation(
+        reverse(buf.scene.atmosphere.altitude_levels),
+        log10.(reverse(buf.scene.atmosphere.met_pressure_levels)),
         extrapolation_bc=Line()
     )
 
@@ -507,74 +458,129 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
     # (we want this to produce the column-integrated CH4)
     # Note that we don't reverse here since the knots need to be in ascending order
     # and pressure levels increase when going towards the surface.
-    itp_alt_from_logp = linear_interpolation(
-        log10.(atm.met_pressure_levels),
-        atm.altitude_levels,
+    @everywhere itp_alt_from_logp = linear_interpolation(
+        log10.(buf.scene.atmosphere.met_pressure_levels),
+        buf.scene.atmosphere.altitude_levels,
         extrapolation_bc=Line()
     )
 
-    #=
-        Scene loop
-        ==========
-    =#
-
     # Before going into the scene loop, let's establish the solar strength for each
     # spectral window, so we can calculate a good initial guess for the surface albedo.
-    solar_strength_guess = Dict{RE.SpectralWindow, Float64}()
+    @everywhere solar_strength_guess = Dict{RE.SpectralWindow, Float64}()
 
     for (swin, rt) in buf.rt
         solar_idx = searchsortedfirst.(Ref(rt.solar_model.ww), swin.ww_grid[:] / 1000.0)
         solar_strength_guess[swin] = maximum(rt.solar_model.irradiance[solar_idx])
     end
 
-    # ROOT will likely be the first one to reach this point, so let us make sure we wait
-    # until all other processes catch up.
-    ROOT_waits(root_waits_channel, ROOT)
-    wait_on_ROOT(wait_on_root_channel, ROOT)
+    # Allocate output containers. The dict contains shared arrays and can be written into
+    # by all processes.
 
-    my_range = StepRange(1, 1, length(my_scene_idx))
+    result_keys = [
+        ("CONVERGED", Bool),
+        ("CHI2", Float32),
+        ("XCH4", Float32),
+        ("CH4_SCALER", Float32),
+        ("H2O_SCALER", Float32),
+        ("CH4_SCALER_UCERT", Float32),
+        ("H2O_SCALER_UCERT", Float32),
+        ("XCH4_PRIOR", Float32),
+        ("ITERATIONS", Int),
+        ("SNR", Float32)
+        ]
 
-    println("$(myid()) is starting retrievals N = $(length(my_range))")
-    flush(stdout)
+    for i in 0:surf_order
+        push!(result_keys, ("ALBEDO_ORDER_$(i)", Float32))
+    end
 
-    # result arrays - we want to store these
-    CH4_result = zeros(Union{Missing, Float32}, length(my_range))
-    albedo_result = zeros(Union{Missing, Float32}, length(my_range))
-    chi2_result = zeros(Union{Missing, Float32}, length(my_range))
-    maxrad_result = zeros(Union{Missing, Float32}, length(my_range))
-    psurf_result = zeros(Union{Missing, Float32}, length(my_range))
+    result_container = Dict{String, SharedArray}()
 
-    #for idx in my_range
-    @showprogress dt=5 showspeed=true for idx in my_range
+    # Allocate and set all results to NaN by default (if float, -9999 otherwise)
+    for (key, key_type) in result_keys
+        result_container[key] = zeros(key_type, nc_shape) |> SharedArray
 
-        CH4_result[idx] = missing
-        albedo_result[idx] = missing
-        chi2_result[idx] = missing
-        maxrad_result[idx] = missing
-        psurf_result[idx] = missing
-
-        #=
-        if (mod(idx, 50) == 0) # Show progress after every 50 scenes..
-            # Print status
-            println("$(idx) / $(length(my_range))")
-            flush(stdout)
+        if (key_type <: AbstractFloat)
+            result_container[key][:,:] .= NaN
         end
-        =#
-        this_meas = my_scene_rads[:,idx] # Full Npix radiances
+        if (key_type <: Integer) & (key_type != Bool) # (Bool <: Integer sadly..)
+            result_container[key][:,:] .= -9999
+        end
+        if (key_type == Bool)
+            result_container[key][:,:] .= false
+        end
 
-        this_noise = noise_model(
-            this_meas,
+    end
+
+    @everywhere result_container = $result_container
+
+    #=
+        Scene loop
+        ==========
+    =#
+
+    # Execute the retrievals in a @distributed loop.
+    # EVERY quantity inside the loop must be available to all workers/processes
+
+    @info "Processing $(length(all_scene_idx)) scenes."
+
+    @showprogress showspeed=true dt=3 @distributed for idx in all_scene_idx
+
+        # We must first take all the per-scene data from the various shared arrays.
+        this_meas = @view nc_rad[:,idx] # Radiance / measurement
+        this_lon = nc_lon[idx]
+        this_lat = nc_lat[idx]
+        this_alt = nc_alt[idx]
+
+        # Adjust surface pressure for this scene to follow the terrain..
+        this_psurf = 10^(itp_logp_from_alt(this_alt))
+
+        # Move new retrieval grid into buffer
+        new_plevels = generate_plevels(this_psurf * buf.scene.atmosphere.pressure_unit)
+        RE.ingest!(buf.scene.atmosphere, :pressure_levels, new_plevels)
+
+        # Calculate layer quantities from level quantities
+        RE.calculate_layers!(buf.scene.atmosphere)
+
+        # Set the scene location
+        loc = RE.EarthLocation(
+            this_lon,
+            this_lat,
+            this_alt,
+            u"m"
+        )
+        buf.scene.location = loc
+
+        # Calculate solar angles from the location and time
+        # RE.update_solar_angles!(buf.scene)
+
+        #gas_co2 = RE.get_gas_from_name(buf.scene.atmosphere, "CO2")
+        gas_ch4 = RE.get_gas_from_name(buf.scene.atmosphere, "CH4")
+        gas_h2o = RE.get_gas_from_name(buf.scene.atmosphere, "H2O")
+
+        # Set the gas profiles back to their original prior state
+        #gas_co2.vmr_levels[:] .= co2_prior
+        gas_ch4.vmr_levels[:] .= ch4_prior
+        gas_h2o.vmr_levels[:] .= h2o_prior
+
+        result_container["XCH4_PRIOR"][idx] = (
+            RE.calculate_xgas(buf.scene.atmosphere)["CH4"] |> u"ppb" |> ustrip
+        )
+
+        # Calculate the noise (in-place)!
+        noise_model!(this_noise, this_meas,
             noise_itps["a"].(wavelengths),
             noise_itps["b"].(wavelengths),
             noise_itps["c"].(wavelengths),
         )
 
+        # Create solver
         solver = RE.IMAPSolver(
             forward_model!,
             state_vector,
             Diagonal(RE.get_prior_covariance(state_vector)), # Prior covariance matrix - just use diagonal
-            10, # number of iterations
-            3.0, # dsigma scale
+            #10.0, # Smaller steps..
+            20, # number of iterations
+            0.5, # dsigma scale
             dispersion_dict,
             rt_buf.indices,
             rt_buf.radiance,
@@ -595,7 +601,7 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
             albedo_prior = pi * signal / (
                 solar_strength_guess[swin] * cosd(buf.scene.solar_zenith)) * rad_unit_fac
 
-            for (sve_idx, sve) in RE.StateVectorIterator( # loop through all albedo SVEs
+            for (sve_idx, sve) in RE.StateVectorIterator( # lopp through all albedo SVEs
                 state_vector, RE.SurfaceAlbedoPolynomialSVE)
                 if sve.coefficient_order == 0
                     sve.first_guess = albedo_prior
@@ -610,52 +616,34 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
             push!(sve.iterations, sve.first_guess)
         end
 
-        # Calculate new altitude and surface pressure
-        new_altitude = my_scene_alts[idx]
-        new_psurf = 10^(itp_logp_from_alt(new_altitude))
-        new_plevels = generate_plevels(new_psurf * buf.scene.atmosphere.pressure_unit)
-
-        # Move new retrieval grid into buffer
-        RE.ingest!(buf.scene.atmosphere, :pressure_levels, new_plevels)
-
-        # Calculate layer quantities from level quantities
-        RE.calculate_layers!(buf.scene.atmosphere)
-
-        # Set the scene location
-        loc = RE.EarthLocation(
-            my_scene_lons[idx],
-            my_scene_lats[idx],
-            new_altitude,
-            u"m"
-        )
-
-        buf.scene.location = loc
-
-        # Calculate solar angles from the location and time
-        RE.update_solar_angles!(buf.scene)
-
-        # Set the gas profiles back to their original prior state
-        #gas_co2.vmr_levels[:] .= co2_prior
-        gas_ch4.vmr_levels[:] .= ch4_prior
-        gas_h2o.vmr_levels[:] .= h2o_prior
 
         iter_result = true
+        converged = false
 
         # ITERATE!
         while !(RE.check_convergence(solver)) # Loop until converged
 
             # Evaluate and produce next iteration state vector!
-            iter_result = RE.next_iteration!(solver; fm_kwargs)
+            try
+                iter_result = RE.next_iteration!(solver; fm_kwargs)
+            catch
+                # Something bad happened..
+                @info "ERROR during iteration."
+                iter_result = false
+                break
+            end
 
             # Skip if bad results occur
             if !iter_result
-                @info "Bad iteration at $(idx). Skipping."
+                #@info "Bad iteration at $(idx). Skipping."
                 break
             end
 
             # Skip bad if NaNs in radiances etc.
             if !RE.check_solver_validity(solver)
-                @info "Invalid solver at $(idx). Skipping."
+                #@info "Invalid solver at $(idx). Skipping."
+                # in case iter_results returns a true beforehand..
+                iter_result = false
                 break
             end
 
@@ -663,11 +651,31 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
             if RE.get_iteration_count(solver) > solver.max_iterations
                 break
             end
+
+            # Clamp gas scale factors
+            for (sve_idx, sve) in RE.StateVectorIterator(
+                state_vector, RE.GasLevelScalingFactorSVE)
+
+                current = RE.get_current_value(sve)
+
+                #if (current < 0.85)
+                #    sve.iterations[end] = 0.85
+                #end
+                #if (current > 3.0) # Strong plumes might be 3x?
+                #    sve.iterations[end] = 3.0
+                #end
+
+            end
+
         end
 
-        # For a bad iteration, just skip to the next scene
+        # For a bad retrieval, just skip to the next scene
         if !iter_result
             continue
+        end
+
+        if RE.check_convergence(solver)
+            converged = true
         end
 
         # Update the atmosphere object
@@ -682,157 +690,51 @@ function main(root_waits_channel, wait_on_root_channel, ARGS_in)
             state_vector
         )
 
-        # Store the surface albedo and other data
-        albedo_result[idx] = RE.get_current_value(sv_surf[1])
-        chi2_result[idx] = collect(values(RE.calculate_chi2(solver)))[1]
-        maxrad_result[idx] = maximum(RE.get_modeled(solver))
-        psurf_result[idx] = buf.scene.atmosphere.pressure_levels[end]
+        # Do error analysis
+        q = RE.calculate_OE_quantities(solver)
 
-        CH4_result[idx] = RE.calculate_xgas(buf.scene.atmosphere)["CH4"] |> u"ppb" |> ustrip
-        #=
-        # Store the CH4 as column-integrated value in units of ppm * m!
-        CH4_result[idx] = 0.0
-
-        for lay in 1:buf.scene.atmosphere.N_layer
-
-            # Get altitudes for (retrieval grid) layer boundaries
-            a1 = itp_alt_from_logp(log10(atm.pressure_levels[lay])) * atm.altitude_unit |> u"m"
-            a2 = itp_alt_from_logp(log10(atm.pressure_levels[lay+1])) * atm.altitude_unit |> u"m"
-
-            # Get mixing ratios in ppm (layer average from levels)
-            m1 = gas_ch4.vmr_levels[lay] * gas_ch4.vmr_unit |> u"ppm"
-            m2 = gas_ch4.vmr_levels[lay+1] * gas_ch4.vmr_unit |> u"ppm"
-
-            # Add layer contribution to total
-            # [(Δ altitude) * (layer mean VMR)] in ppm m
-            CH4_result[idx] += (a1 - a2) * 0.5 * (m2 + m1) |> u"ppm * m" |> ustrip
+        if isnothing(q)
+            # If we can't do error analysis, something probably went wrong..
+            continue
         end
-        =#
+
+        # Put results into container
+        result_container["CONVERGED"][idx] = converged
+        result_container["SNR"][idx] = mean(RE.get_measured(solver) ./ RE.get_noise(solver))
+        result_container["CHI2"][idx] = collect(values(RE.calculate_chi2(solver)))[1]
+        result_container["XCH4"][idx] = RE.calculate_xgas(buf.scene.atmosphere)["CH4"] |> u"ppb" |> ustrip
+        result_container["ITERATIONS"][idx] = RE.get_iteration_count(solver)
+
+        for (sve_idx, sve) in RE.StateVectorIterator(
+            state_vector, RE.SurfaceAlbedoPolynomialSVE)
+            o = sve.coefficient_order
+
+            result_container["ALBEDO_ORDER_$(o)"][idx] = RE.get_current_value(sve)
+        end
+
+        for (sve_idx, sve) in RE.StateVectorIterator(
+            state_vector, RE.GasLevelScalingFactorSVE)
+
+            gname = sve.gas.gas_name
+
+            result_container["$(gname)_SCALER"][idx] = RE.get_current_value(sve)
+            result_container["$(gname)_SCALER_UCERT"][idx] = q.SV_ucert[sve_idx]
+        end
     end
 
-    # After the retrievals are done, ROOT must wait here for all other processes to
-    # gather the retrieval results.
-    ROOT_waits(root_waits_channel, ROOT)
-    wait_on_ROOT(wait_on_root_channel, ROOT)
+    # Main process produces the output file
+    h5open(args["output"], "w") do h5out
 
-    #=
-        Gather results!
-        ===============
-
-        All others => ROOT
-    =#
-
-    # Save the results on each process
-    save_at(myid(), :CH4_result, CH4_result)
-    save_at(myid(), :albedo_result, albedo_result)
-    save_at(myid(), :chi2_result, chi2_result)
-    save_at(myid(), :maxrad_result, maxrad_result)
-    save_at(myid(), :psurf_result, psurf_result)
-
-    # ROOT must wait here on all other procs to finish saving the result.
-    ROOT_waits(root_waits_channel, ROOT)
-
-    if myid() == ROOT
-
-        # Allocate big arrays for full results
-        CH4_ENH = zeros(Union{Missing, Float32}, nc_shape...)
-        CH4_ENH[:,:] .= missing
-
-        ALBEDO = zeros(Union{Missing, Float32}, nc_shape...)
-        ALBEDO[:,:] .= missing
-
-        CHI2 = zeros(Union{Missing, Float32}, nc_shape...)
-        CHI2[:,:] .= missing
-
-        MAXRAD = zeros(Union{Missing, Float32}, nc_shape...)
-        MAXRAD[:,:] .= missing
-
-        PSURF = zeros(Union{Missing, Float32}, nc_shape...)
-        PSURF[:,:] .= missing
-
-        # Gather each process-based partial result
-        for p in 1:nprocs()
-            @info "Obtaining results from process $(p)"
-
-            CH4_ENH[all_proc_scene_idx[p]] .= get_val_from(p, :CH4_result)
-            ALBEDO[all_proc_scene_idx[p]] .= get_val_from(p, :albedo_result)
-            CHI2[all_proc_scene_idx[p]] .= get_val_from(p, :chi2_result)
-            MAXRAD[all_proc_scene_idx[p]] .= get_val_from(p, :maxrad_result)
-            PSURF[all_proc_scene_idx[p]] .= get_val_from(p, :psurf_result)
+        for key in keys(result_container)
+            @info "Writing out $(key)"
+            h5out[key, compress=2] = result_container[key]
         end
-
-        # Take the median out
-        #med = median(skipmissing(CH4_ENH))
-        #CH4_ENH[:,:] .-= med
-
-        # "Correct for surface"
-        #df = DataFrame("ch4" => vec(CH4_ENH), "albedo" => vec(ALBEDO)) |> dropmissing
-        #reg = createRegressionSetting(@formula(ch4 ~ albedo), df) # Set up createRegressionSetting
-        #reg_result = lts(reg) # Fit
-
-        #predict_ch4_enh = @. ALBEDO * reg_result["betas"][2] + reg_result["betas"][1]
-        #CH4_ENH[:,:] .-= predict_ch4_enh # subtract surface effect
-
-
-
-        #=
-            CH4_ENH is in the shape of the lon/lat grid in the L1B file, but we should be
-            saving the data accroding to the glt_x, glt_y
-        =#
-
-        #nc = NCDataset(nc_fname, "r")
-
-        #glt_x = nc.group["location"]["glt_x"][:,:]
-        #glt_y = nc.group["location"]["glt_y"][:,:]
-        #=
-        # Allocate result output
-        output = zeros(size(glt_x)...)
-        for i in axes(glt_x, 1), j in axes(glt_x, 2)
-
-            output[i,j] = -9999.0
-
-            if (glt_x[i,j] != 0)
-
-                val = CH4_ENH[glt_x[i,j], glt_y[i,j]]
-
-                if !ismissing(val)
-                    output[i,j] = val # Save to output if not missing
-                end
-            end
-
-        end
-
-        # Set NaNs to nodatavalue
-        output[isnan.(output)] .= -9999.0
-        =#
-
-        #Save out
-        h5 = h5open(args["output"], "w")
-        h5["ch4"] = replace(CH4_ENH, missing => NaN)
-        h5["albedo"] = replace(ALBEDO, missing => NaN)
-        h5["chi2"] = replace(CHI2, missing => NaN)
-        h5["maxrad"] = replace(MAXRAD, missing => NaN)
-        h5["psurf"] = replace(PSURF, missing => NaN)
-        close(h5)
-
-        # Save GeoTIFF (put this in new module)
-        #=
-        width = size(output, 1)
-        height = size(output, 2)
-        AG.create("test.tiff", driver=AG.getdriver("GTiff"),
-            width=width, height=height, nbands=1, dtype=Float32) do gtiff
-
-            ds = AG.write!(gtiff, output, 1)
-            AG.setgeotransform!(gtiff, nc.attrib["geotransform"])
-            AG.setproj!(gtiff, nc.attrib["spatial_ref"])
-
-            band = AG.getband(ds, 1)
-            AG.setnodatavalue!(band, -9999.0)
-
-        end
-        =#
-        #close(nc)
 
     end
+
+
 
 end
+
+
+main()
