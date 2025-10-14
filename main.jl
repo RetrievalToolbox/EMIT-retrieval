@@ -14,6 +14,7 @@ using Distributed
     using LinearAlgebra
     using LoopVectorization
     using NCDatasets
+    using Printf
     using Polynomials
     using ProgressMeter
     using SharedArrays
@@ -42,7 +43,6 @@ function main()
         header=["wl", "a", "b", "c", "rmse"]
     )
 
-
     #=
         Input file
         ==========
@@ -59,6 +59,9 @@ function main()
     # Read wavelength and send to others
     wavelengths = nc_l1b.group["sensor_band_parameters"]["wavelengths"].var[:] |> SharedArray
     @everywhere wavelengths = $wavelengths
+
+    # Number of bands
+    @everywhere Npix = length(wavelengths)
 
     # Read ISRF FWHMs (needed later for creation of ISRFs)
     fwhms = nc_l1b.group["sensor_band_parameters"]["fwhm"].var[:]
@@ -103,6 +106,9 @@ function main()
     nc_rad = replace(nc_l1b["radiance"][:,:,:], missing => NaN) |> SharedArray
     @everywhere nc_rad = $nc_rad
 
+    # Close the L1B file
+    close(nc_l1b)
+
     # Sub-set (can be handled my main process only)
     all_scene_idx = findall(
         (nc_lon .> lon_bounds[1]) .&
@@ -111,8 +117,9 @@ function main()
         (nc_lat .< lat_bounds[2])
         )
 
-    # Close the L1B file
-    close(nc_l1b)
+    @info "Bounds of this granule: "
+    @info "Longitude " * (@sprintf "[%0.4f, %0.4f]" minimum(nc_lon) maximum(nc_lon))
+    @info "Latitude " * (@sprintf "[%0.4f, %0.4f]" minimum(nc_lat) maximum(nc_lat))
 
     # Create the solar model
     solar_model = RE.TSISSolarModel(
@@ -122,7 +129,7 @@ function main()
 
     # Create the spectroscopy objects
     ABSCO_CH4 = RE.load_ABSCOAER_spectroscopy(
-        "data/CH4_04000-05250_v0.0_init.nc";
+        "data/CH4_03900-05250_v0.0_init.nc";
         spectral_unit=:Wavelength, distributed=true
     )
 
@@ -134,11 +141,11 @@ function main()
     =#
 
     ABSCO_H2O = RE.load_ABSCOAER_spectroscopy(
-        "data/H2O_04000-05250_v0.0_init.nc";
+        "data/H2O_03900-05250_v0.0_init.nc";
         spectral_unit=:Wavelength, distributed=true
     )
 
-    Npix = length(wavelengths) # Number of bands
+
 
     # Produce linear noise interpolation for each coeff a,b,c
     noise_itps = Dict(
@@ -156,10 +163,10 @@ function main()
 
     window_dict["CH4"] = RE.spectralwindow_from_ABSCO(
         "CH4",
-        2150.0, # min
-        2375.0, # max
+        2250.0, #2250.0, #2150.0, # 2137.0, #  min
+        2350.0, # 2493.0, #  max
         2300.0, # reference
-        50.0, # buffer
+        35.0, # buffer
         ABSCO_CH4, # Spectroscopy from which to get the wavelength grid from
         u"nm"
     );
@@ -203,7 +210,7 @@ function main()
 
         σ = FWHM_to_sigma(fwhms[i]) # this is in nm
 
-        wl_delta[:,i] = collect(LinRange(-7*σ, 7*σ, Ndelta))
+        wl_delta[:,i] = collect(LinRange(-5*σ, 5*σ, Ndelta))
         rr[:,i] = @. 1 / (σ * sqrt(2*pi)) * exp(-0.5 * ( - wl_delta[:,i])^2 / σ^2)
     end
 
@@ -226,8 +233,8 @@ function main()
     # Some user defined function to generate a pressure grid:
     function generate_plevels(psurf)
         return vcat(
-            collect(LinRange(0.01u"hPa", 200.0u"hPa", 6)),
-            collect(LinRange(300.0u"hPa", psurf, 5))
+            collect(LinRange(0.001u"hPa", 200.0u"hPa", 4)),
+            collect(LinRange(300.0u"hPa", psurf, 6))
         )
     end
 
@@ -236,13 +243,18 @@ function main()
 
     gases = RE.GasAbsorber[]
 
-    gas_ch4 = RE.create_example_gas_profile("US-midwest-summer", "CH4", ABSCO_CH4, plevels)
+    gas_ch4 = RE.create_example_gas_profile("./data/EMIT-example.csv", "CH4",
+        ABSCO_CH4, plevels; is_example=false
+    )
     ch4_prior = copy(gas_ch4.vmr_levels)
 
-    gas_h2o = RE.create_example_gas_profile("US-midwest-summer", "H2O", ABSCO_H2O, plevels)
+    gas_h2o = RE.create_example_gas_profile("./data/EMIT-example.csv", "H2O",
+        ABSCO_H2O, plevels; is_example=false
+    )
+    #gas_h2o.vmr_levels[:] .= 0.002
     h2o_prior = copy(gas_h2o.vmr_levels)
 
-    #gas_co2 = RE.create_example_gas_profile("US-midwest-summer", "CO2", ABSCO_CO2, plevels)
+    #gas_co2 = RE.create_example_gas_profile("./data/EMIT-example.csv", "CO2", ABSCO_CO2, plevels)
     #co2_prior = copy(gas_co2.vmr_levels)
 
     push!(gases, gas_ch4)
@@ -258,7 +270,9 @@ function main()
     =#
 
     # Use `atm_orig` as the original reference atmosphere
-    atm_orig = RE.create_example_atmosphere("US-midwest-summer", N_RT_lev; T=Float64);
+    atm_orig = RE.create_example_atmosphere("./data/EMIT-example.csv", N_RT_lev;
+        T=Float64, is_example=false
+    )
     # Use `atm` as a working copy
     atm = deepcopy(atm_orig)
     N_MET_lev = atm.N_met_level
@@ -308,7 +322,7 @@ function main()
         Unitful.NoUnits,
         1.0,
         1.0,
-        1.0e-1
+        1.0
     )
 
     # Retrieve a polynomial for the Lambertian surface albedo
@@ -327,7 +341,7 @@ function main()
                     u"nm",
                     fg,
                     fg,
-                    1.0
+                    1.0^(-2*o)
                 )
             )
 
@@ -342,7 +356,6 @@ function main()
     ])
 
     @everywhere state_vector = $state_vector
-
 
     #=
         Buffer
@@ -361,11 +374,6 @@ function main()
         zeros(my_type, N2),
     )
 
-    # Buffer needed for optimal estimation linear algebra
-    oe_buf = RE.OEBuffer(
-        N2, length(state_vector), my_type
-    )
-
     # Buffer needed for the monochromatic radiance calculations
     rt_buf = RE.ScalarRTBuffer(
         dispersion_dict, # Already a SpectralWindows -> Dispersion dictionary
@@ -379,7 +387,7 @@ function main()
     buf = RE.EarthAtmosphereBuffer(
         state_vector, # The state vector
         values(window_dict) |> collect, # The spectral window (or a list of them)
-        [(:Lambert, 5) for x in window_dict], # Surfaces
+        [(:Lambert, 4) for x in window_dict], # Surfaces
         atm.atm_elements, # All atmospheric elements
         Dict(swin => solar_model for swin in values(window_dict)), # Solar model dictionary (spectral window -> solar model)
         [:BeerLambert for swin in window_dict], # Use the speedy Beer-Lambert RT model
@@ -417,7 +425,6 @@ function main()
     fm_kwargs = (
         buf=buf,
         inst_buf=inst_buf,
-        oe_buf=oe_buf,
         rt_buf=rt_buf,
         dispersions=dispersion_dict,
         isrf_dict=isrf_dict,
@@ -511,6 +518,10 @@ function main()
 
     end
 
+    # Add an array for residuals
+    #result_container["RESIDUALS"] = zeros(Float32, (nc_shape..., length(wavelengths)))
+    #result_container["RESIDUALS"][:,:,:] .= NaN
+
     @everywhere result_container = $result_container
 
     #=
@@ -551,7 +562,7 @@ function main()
         buf.scene.location = loc
 
         # Calculate solar angles from the location and time
-        # RE.update_solar_angles!(buf.scene)
+        RE.update_solar_angles!(buf.scene)
 
         #gas_co2 = RE.get_gas_from_name(buf.scene.atmosphere, "CO2")
         gas_ch4 = RE.get_gas_from_name(buf.scene.atmosphere, "CH4")
@@ -578,9 +589,8 @@ function main()
             forward_model!,
             state_vector,
             Diagonal(RE.get_prior_covariance(state_vector)), # Prior covariance matrix - just use diagonal
-            #10.0, # Smaller steps..
             20, # number of iterations
-            0.5, # dsigma scale
+            1.0, # dsigma scale
             dispersion_dict,
             rt_buf.indices,
             rt_buf.radiance,
@@ -601,7 +611,7 @@ function main()
             albedo_prior = pi * signal / (
                 solar_strength_guess[swin] * cosd(buf.scene.solar_zenith)) * rad_unit_fac
 
-            for (sve_idx, sve) in RE.StateVectorIterator( # lopp through all albedo SVEs
+            for (sve_idx, sve) in RE.StateVectorIterator( # loop through all albedo SVEs
                 state_vector, RE.SurfaceAlbedoPolynomialSVE)
                 if sve.coefficient_order == 0
                     sve.first_guess = albedo_prior
@@ -647,23 +657,24 @@ function main()
                 break
             end
 
+
             # Break if iterations reached limit.
             if RE.get_iteration_count(solver) > solver.max_iterations
                 break
             end
 
-            # Clamp gas scale factors
+            # Constrain gas scale factors
             for (sve_idx, sve) in RE.StateVectorIterator(
                 state_vector, RE.GasLevelScalingFactorSVE)
 
                 current = RE.get_current_value(sve)
 
-                #if (current < 0.85)
-                #    sve.iterations[end] = 0.85
-                #end
-                #if (current > 3.0) # Strong plumes might be 3x?
-                #    sve.iterations[end] = 3.0
-                #end
+                if (current < 0.1)
+                    sve.iterations[end] = 0.1
+                end
+                if (current > 3.0) # Strong plumes might be 3x?
+                    sve.iterations[end] = 3.0
+                end
 
             end
 
@@ -691,7 +702,12 @@ function main()
         )
 
         # Do error analysis
-        q = RE.calculate_OE_quantities(solver)
+        q = nothing
+        try
+            q = RE.calculate_OE_quantities(solver)
+        catch
+            @info "ERROR while doing error analysis"
+        end
 
         if isnothing(q)
             # If we can't do error analysis, something probably went wrong..
@@ -700,9 +716,11 @@ function main()
 
         # Put results into container
         result_container["CONVERGED"][idx] = converged
-        result_container["SNR"][idx] = mean(RE.get_measured(solver) ./ RE.get_noise(solver))
+        result_container["SNR"][idx] =
+            mean(RE.get_measured(solver) ./ RE.get_noise(solver))
         result_container["CHI2"][idx] = collect(values(RE.calculate_chi2(solver)))[1]
-        result_container["XCH4"][idx] = RE.calculate_xgas(buf.scene.atmosphere)["CH4"] |> u"ppb" |> ustrip
+        result_container["XCH4"][idx] =
+            RE.calculate_xgas(buf.scene.atmosphere)["CH4"] |> u"ppb" |> ustrip
         result_container["ITERATIONS"][idx] = RE.get_iteration_count(solver)
 
         for (sve_idx, sve) in RE.StateVectorIterator(
@@ -720,7 +738,21 @@ function main()
             result_container["$(gname)_SCALER"][idx] = RE.get_current_value(sve)
             result_container["$(gname)_SCALER_UCERT"][idx] = q.SV_ucert[sve_idx]
         end
+
+        # Spectral residuals
+        swin = buf.spectral_window[1] # Grab the spectral window
+        disp = buf.rt_buf.dispersion[swin] # .. and the associated dispersion
+
+        #resid = (RE.get_modeled(solver, swin) .- RE.get_measured(solver, swin)) ./
+        #    RE.get_noise(solver, swin)
+
+        #result_container["RESIDUALS"][idx, disp.index] .= resid
+
     end
+
+
+
+
 
     # Main process produces the output file
     h5open(args["output"], "w") do h5out
