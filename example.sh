@@ -1,39 +1,49 @@
 #!/bin/bash
 
 NUM_PROCS=${1}
-echo "Spawning with ${NUM_PROCS} additional processes."
+
+# Define the L1B filename here!
+l1b_fname=L1B/EMIT_L1B_RAD_demo.nc
 
 if (( NUM_PROCS == 0 )); then
 
-    julia --project=./ new_way.jl \
-        --L1B L1B/EMIT_L1B_RAD_001_20230612T162103_2316311_006.nc \
-        --output test.h5 \
-        --lon_bounds -111.10,-111.06 \
-        --lat_bounds 41.24,41.265
+    julia --project=./ main.jl \
+        --L1B ${l1b_fname} \
+        --output demo_results.h5 \
 
 else
 
-    julia --project=./ -p ${NUM_PROCS} new_way.jl \
-        --L1B L1B/EMIT_L1B_RAD_001_20230612T162103_2316311_006.nc \
-        --output test.h5 \
-        --lon_bounds -111.215,-111.112 \
-        --lat_bounds 41.35,41.45425
+    echo "Spawning with ${NUM_PROCS} additional processes."
+
+    julia --project=./ -p ${NUM_PROCS} main.jl \
+        --output demo_results.h5 \
+        --L1B ${l1b_fname} \
 
 fi
+echo "Turning into GeoTIFF.."
+
+julia --project=./ produce_geotiff.jl \
+    --L1 L1B/EMIT_L1B_RAD_demo.nc \
+    --L2 demo_results.h5 \
+    --out demo.tiff
 
 
 # Small box with small plume
-#lon_bounds -111.10,-111.06
-#lat_bounds 41.24,41.265
+#--lon_bounds -111.10,-111.06 \
+#--lat_bounds 41.24,41.265
 
 # Slightly larger box with small plume
-#lon_bounds -111.1975,-111.085
-#lat_bounds 41.2375,41.280
+#--lon_bounds -111.1975,-111.085 \
+#--lat_bounds 41.2375,41.280
 
 # Larger box with larger plume
-#lon_bounds -111.30,-111.10
-#lat_bounds 41.25,41.50
+#--lon_bounds -111.30,-111.10 \
+#--lat_bounds 41.25,41.50
 
 # Even larger box containing both plumes
-#lon_bounds -111.3,-111.03
-#lat_bounds 41.2,41.5
+#--lon_bounds -111.3,-111.03 \
+#--lat_bounds 41.2,41.5
+
+# Part of larger plume with dark patch underneath
+#--lon_bounds -111.215,-111.112 \
+#--lat_bounds 41.35,41.45425

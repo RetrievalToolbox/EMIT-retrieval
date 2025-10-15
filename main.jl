@@ -533,6 +533,7 @@ function main()
     # EVERY quantity inside the loop must be available to all workers/processes
 
     @info "Processing $(length(all_scene_idx)) scenes."
+    @info "(please wait ..)"
 
     @showprogress showspeed=true dt=3 @distributed for idx in all_scene_idx
 

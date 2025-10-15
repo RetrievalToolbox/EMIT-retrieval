@@ -4,6 +4,7 @@ using ArgParse
 using HDF5
 using NCDatasets
 using ProgressMeter
+using Statistics
 
 function main()
 
@@ -45,11 +46,18 @@ function main()
 
         # Get the CH4 results (and others)
         XCH4 = h5_l2["XCH4"][:,:]
+        # Turn it into XCH4 enhancements
+        med_xch4 = median(XCH4[isfinite.(XCH4)])
+        @info "Median XCH4: $(med_xch4)"
+
+        for i in eachindex(XCH4)
+            isfinite(XCH4[i]) && (XCH4[i] -= med_xch4)
+        end
 
         # Filtering
         CHI2 = h5_l2["CHI2"][:,:]
 
-        filter_good = @. (CHI2 > 0.1) & (CHI2 < 10) & (XCH4 > 1000)
+        filter_good = @. (CHI2 > 0.1) & (CHI2 < 10)
         XCH4[(!).(filter_good)] .= NaN
 
 
@@ -73,7 +81,8 @@ function main()
         height = size(output, 2)
 
         AG.create(args["out"], driver=AG.getdriver("GTiff"),
-            width=width, height=height, nbands=1, dtype=Float32) do gtiff
+            width=width, height=height, nbands=1, dtype=Float32
+            ) do gtiff
 
             ds = AG.write!(gtiff, output, 1)
             AG.setgeotransform!(gtiff, nc_l1b.attrib["geotransform"])
