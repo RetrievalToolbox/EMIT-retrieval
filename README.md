@@ -16,7 +16,7 @@ To run the example(s), some additional data is needed which currently resides on
 3. An reduced EMIT L1B file, which has been stripped of most valid scenes, apart from a small section which contains a visible CH4 plume. The granule is originally `EMIT_L1B_RAD_001_20230612T162103_2316311_006.nc` and can be downloaded from [NASA's Earthdata catalogue](https://www.earthdata.nasa.gov/data/catalog/lpcloud-emitl1brad-001).
 
 > [!WARNING]
-> This is a demonstration only intended to show how **RetrievalToolbox** can be used to implement a gas retrieval for hyperspectral imaging instruments, such as NASA's EMIT. The retrieval algorithm demonstrated here is **not** a fully-tested application. The inferred methane and carbon dioxide concentrations are not accurate, no bias correction or validation against either ground-truths or other retrieval products has been done.
+> This is a demonstration only intended to show how **RetrievalToolbox** can be used to implement a gas retrieval for hyperspectral imaging instruments, such as NASA's EMIT. The retrieval algorithm demonstrated here is **not** a fully-tested application. The inferred methane and carbon dioxide concentrations are not accurate, no bias correction or validation against either ground-truths or other retrieval products has been done. For example, the treatment of the surface is far too simplistic to reliably work for spectral windows that are as wide as the ones used in this demo.
 
 
 ## Requirements
@@ -47,6 +47,8 @@ For users who prefer the newer "JupyterLab" interface, run the following instead
 `julia --project=./ -e "using IJulia; IJulia.jupyterlab(dir=pwd())"`
 
 Should difficulties arise in this step, please refer to [IJulia](https://github.com/JuliaLang/IJulia.jl) or [JupyterLab](https://jupyterlab.readthedocs.io/en/stable/).
+
+The interactive notebook is also uploaded as a pre-rendered HTML file, that can be viewed [here](./Demonstration.html).
 
 
 ### Running the batch process
