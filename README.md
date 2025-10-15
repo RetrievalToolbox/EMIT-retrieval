@@ -26,11 +26,12 @@ The retrieval algorithm and scripts are designed to work on a Unix-like system (
 
 ## Instructions
 
-- First, clone the repository into a location of your choice with `git clone https://github.com/PeterSomkuti/EMIT-retrieval.git`
+- First, clone the repository into a location of your choice with
+  - `git clone https://github.com/PeterSomkuti/EMIT-retrieval.git`
 - Navigate into the `EMIT-retrieval` directory and run
-    `./setup.sh`
-  - This will download and install the most recent and stable Julia (the language in which EMIT-retrieval is written in) distribution, and then download all packages required to run the examples.
-  - Further, a new Python virtual environment is created into which the [`gdown`](https://github.com/wkentaro/gdown) module is installed, which lets us download the required additional files.
+  - `./setup.sh`
+    - This will download and install the most recent and stable Julia (the language in which EMIT-retrieval is written in) distribution, and then download all packages required to run the examples.
+    - Further, a new Python virtual environment is created into which the [`gdown`](https://github.com/wkentaro/gdown) module is installed, which lets us download the required additional files.
 
 
 ### Running the interactive notebook
