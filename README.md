@@ -1,6 +1,6 @@
 # EMIT greenhouse gas retrieval via RetrievalToolbox
 
-This is a demonstration showing how a greenhouse gas retrieval for EMIT measurements can be implemented with the *RetrievalToolbox* algorithm tools.
+This is a demonstration showing how a greenhouse gas retrieval for EMIT measurements can be implemented with the **RetrievalToolbox** algorithm tools.
 
 The demo is split into two parts:
 
@@ -14,6 +14,10 @@ To run the example(s), some additional data is needed which currently resides on
 1. Spectroscopy files that were generated with the [ReFRACtor ABSCO toolset](https://github.com/ReFRACtor/ABSCO)
 2. The LASP TSIS solar model, which can also be downloaded [here](https://lasp.colorado.edu/lisird/data/tsis1_hsrs_p1nm)
 3. An reduced EMIT L1B file, which has been stripped of most valid scenes, apart from a small section which contains a visible CH4 plume. The granule is originally `EMIT_L1B_RAD_001_20230612T162103_2316311_006.nc` and can be downloaded from [NASA's Earthdata catalogue](https://www.earthdata.nasa.gov/data/catalog/lpcloud-emitl1brad-001).
+
+> [!WARNING]
+> This is a demonstration only intended to show how **RetrievalToolbox** can be used to implement a gas retrieval for hyperspectral imaging instruments, such as NASA's EMIT. The retrieval algorithm demonstrated here is **not** a fully-tested application. The inferred methane and carbon dioxide concentrations are not accurate, no bias correction or validation against either ground-truths or other retrieval products has been done.
+
 
 ## Requirements
 
@@ -56,7 +60,7 @@ This will run batch processing of ~8,000 scenes. The output will then be convert
 
 will cause 7 **additional** processes to be spawned, for a total of 8. In this multi-processing mode, also a progress bar will appear that informs the user of the progress every few seconds.
 
-Note that the batch processing is setup to only retrieve CH4 from a single retrieval window. Once successful, the retrieval should reproduce the methane enhancement due to a plume as shown below.
+Note that the batch processing is setup to only retrieve CH4 from a single retrieval window. Once successful, the retrieval should reproduce the methane enhancement due to a plume as shown below. Note that there is no major post-processing in this example, thus surface features will imprint visibly on the XCH4 enhancement fields.
 
 ![Example methane plume, observed by EMIT at granule EMIT_L1B_RAD_001_20230612T162103_2316311_006](plume_example.png)
 
