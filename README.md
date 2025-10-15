@@ -48,7 +48,7 @@ For users who prefer the newer "JupyterLab" interface, run the following instead
 
 Should difficulties arise in this step, please refer to [IJulia](https://github.com/JuliaLang/IJulia.jl) or [JupyterLab](https://jupyterlab.readthedocs.io/en/stable/).
 
-The interactive notebook is also uploaded as a pre-rendered HTML file, that can be viewed [here](https://htmlpreview.github.io/?https://github.com/PeterSomkuti/EMIT-retrieval/Demonstration.html).
+The interactive notebook is also uploaded as a pre-rendered HTML file, that can be viewed [here](https://rawcdn.githack.com/PeterSomkuti/EMIT-retrieval/25c5ecd61116331883b03b4df11f991d8bdb1334/Demonstration.html).
 
 
 ### Running the batch process
