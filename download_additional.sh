@@ -15,6 +15,9 @@ gdown -c https://drive.google.com/uc?id=1ENqe6VSD8yg2rXY1fFI7i2t8OwjTdqqp
 cd ../
 
 # Download the EMIT L1B file
+if [ ! -d L1B ]; then
+    mkdir L1B
+fi
 cd L1B/
-gdown -c https://drive.google.com/uc?id=1gjf2ZE0Qj9W3mR8knqDJrhs4uwUfXJZ_
+gdown -c https://drive.google.com/uc?id=1ehnzVk6zlqtBRnWSojs-iEG9Ot5I07oD
 cd ../
