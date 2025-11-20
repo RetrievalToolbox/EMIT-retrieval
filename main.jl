@@ -117,9 +117,13 @@ function main()
         (nc_lat .< lat_bounds[2])
         )
 
+    # Calculate bounds to let user know..
+    lonmax, latmax = map(x -> maximum(filter(!isnan, x)), (nc_lon, nc_lat))
+    lonmin, latmin = map(x -> maximum(filter(!isnan, x)), (nc_lon, nc_lat))
+
     @info "Bounds of this granule: "
-    @info "Longitude " * (@sprintf "[%0.4f, %0.4f]" minimum(nc_lon) maximum(nc_lon))
-    @info "Latitude " * (@sprintf "[%0.4f, %0.4f]" minimum(nc_lat) maximum(nc_lat))
+    @info "Longitude " * (@sprintf "[%0.4f, %0.4f]" lonmin lonmax)
+    @info "Latitude " * (@sprintf "[%0.4f, %0.4f]" latmin latmax)
 
     # Create the solar model
     solar_model = RE.TSISSolarModel(
