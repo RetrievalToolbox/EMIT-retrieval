@@ -18,11 +18,9 @@ To run the example(s), some additional data is needed which currently resides on
 > [!WARNING]
 > This is a demonstration only intended to show how **RetrievalToolbox** can be used to implement a gas retrieval for hyperspectral imaging instruments, such as NASA's EMIT. The retrieval algorithm demonstrated here is **not** a fully-tested application. The inferred methane and carbon dioxide concentrations are not accurate, no bias correction or validation against either ground-truths or other retrieval products has been done. For example, the treatment of the surface is far too simplistic to reliably work for spectral windows that are as wide as the ones used in this demo.
 
-
 ## Requirements
 
 The retrieval algorithm and scripts are designed to work on a Unix-like system (Mac OS, Linux) and require only `bash`, a recent version of Python that includes `pip`, and the ability to download and run the `JuliaUp` installer via curl. Administrator privileges are not needed. If you require this example to work on MS Windows, please get in touch via the [issues tracker](https://github.com/PeterSomkuti/EMIT-retrieval/issues).
-
 
 ## Instructions
 
@@ -38,6 +36,11 @@ The retrieval algorithm and scripts are designed to work on a Unix-like system (
 
 > [!IMPORTANT]  
 > You **must** re-start or re-source your shell after the first execution of `./setup.sh` to allow for JuliaUp's loaction to propagate into the `$PATH` environment variable, if you did not have JuliaUp installed previously. On Mac OS and most Linux distributions, a simple re-start of the terminal application should work.
+
+The `setup.sh` script can be run multiple times, should e.g. a download fail due to an instable internet connection.
+
+> [!NOTE]
+> Should some step in the automated installation fail, and you would like to re-attempt the setup from scratch, you can easily do so. A complete wipe can be done by deleting the cloned directory, as well as removing JuliaUp via `juliaup self uninstall`. If the Julia installation itself failed and seems unrecoverable, you can manually delete the JuliaUp main directory (usually `~/.juliaup`, but can differ).
 
 ### Running the interactive notebook
 
