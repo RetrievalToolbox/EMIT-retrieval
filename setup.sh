@@ -11,7 +11,7 @@ echo "### Installing Julia via juliaup"
 juliaup -V
 if [ $? -ne 0 ]; then
     echo "JuliaUp not found - installing"
-    curl -fsSL https://install.julialang.org | sh -s --default-channel ${julia_version}
+    curl -fsSL https://install.julialang.org | sh -s -- --default-channel ${julia_version}
 else
     echo "JuliaUp found - installing ${julia_version}."
     juliaup add ${julia_version}
