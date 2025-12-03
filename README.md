@@ -20,12 +20,12 @@ To run the example(s), some additional data is needed which currently resides on
 
 ## Requirements
 
-The retrieval algorithm and scripts are designed to work on a Unix-like system (Mac OS, Linux) and require only `bash`, a recent version of Python that includes `pip`, and the ability to download and run the `JuliaUp` installer via curl. Administrator privileges are not needed. If you require this example to work on MS Windows, please get in touch via the [issues tracker](https://github.com/PeterSomkuti/EMIT-retrieval/issues).
+The retrieval algorithm and scripts are designed to work on a Unix-like system (Mac OS, Linux) and require only `bash`, a recent version of Python that includes `pip`, and the ability to download and run the `JuliaUp` installer via curl. Administrator privileges are not needed. If you require this example to work on MS Windows, please get in touch via the [issues tracker](https://github.com/RetrievalToolbox/EMIT-retrieval/issues).
 
 ## Instructions
 
 - First, clone the repository into a location of your choice with
-  - `git clone https://github.com/PeterSomkuti/EMIT-retrieval.git`
+  - `git clone https://github.com/RetrievalToolbox/EMIT-retrieval.git`
 - Navigate into the `EMIT-retrieval` directory and run
   - `./setup.sh`
     - This will download and install the most recent and stable Julia (the language in which EMIT-retrieval is written in) distribution, and then download all packages required to run the examples.
@@ -56,7 +56,7 @@ For users who prefer the newer "JupyterLab" interface, run the following instead
 
 Should difficulties arise in this step, please refer to [IJulia](https://github.com/JuliaLang/IJulia.jl) or [JupyterLab](https://jupyterlab.readthedocs.io/en/stable/).
 
-The interactive notebook is also uploaded as a pre-rendered HTML file, that can be viewed [here](https://rawcdn.githack.com/PeterSomkuti/EMIT-retrieval/25c5ecd61116331883b03b4df11f991d8bdb1334/Demonstration.html).
+The interactive notebook is also uploaded as a pre-rendered HTML file, that can be viewed [here](https://rawcdn.githack.com/RetrievalToolbox/EMIT-retrieval/dcdb02504e9f072b22bd6c3a0c5ce3a48af28109/Demonstration.html).
 
 
 ### Running the batch process
@@ -65,7 +65,7 @@ Navigate into the previously cloned `EMIT-retrieval` directory and start the bat
 
 `./example.sh`
 
-This will run batch processing of ~8,000 scenes. The output will then be converted into a compliant GeoTIFF (`demo.tiff`) file that can be viewed with e.g. GIS applications. The retrieval application can utilize additional processes. On most modern machines users can add a number to the command which will then spawn additional processes that also partake in the processing of scenes. For example:
+This will run batch processing of ~8,000 scenes, and take about 15 minutes to complete in single-process mode (on a 2023 MacBook Pro). The output will then be converted into a compliant GeoTIFF (`demo.tiff`) file that can be viewed with e.g. GIS applications. The retrieval application can utilize additional processes. On most modern machines users can add a number to the command which will then spawn additional processes that also partake in the processing of scenes. For example:
 
 `./example.sh 7`
 
@@ -81,4 +81,4 @@ Note that the batch processing is setup to only retrieve CH4 from a single retri
 - [EMIT GHG retrieval repository](https://github.com/emit-sds/emit-ghg)
 - [ReFRACtor ABSCO toolset](https://github.com/ReFRACtor/ABSCO)
 - [RetrievalToolbox.jl](https://github.com/US-GHG-Center/RetrievalToolbox.jl)
-- [RetrievalToolbox learning materials](https://petersomkuti.github.io/RetrievalToolbox-Tutorials/)
+- [RetrievalToolbox learning materials](https://retrievaltoolbox.github.io/RetrievalToolbox-Tutorials/)
