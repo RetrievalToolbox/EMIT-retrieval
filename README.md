@@ -21,7 +21,7 @@ To run the example(s), some additional data is needed which currently resides on
 
 ## Requirements
 
-The retrieval algorithm and scripts are designed to work on a Unix-like system (Mac OS, Linux) and require only `bash`, a recent version of Python that includes `pip`, and the ability to download and run the `JuliaUp` installer via curl. Administrator privileges are not needed. If you require this example to work on MS Windows, please get in touch via the (issues tracker)[https://github.com/PeterSomkuti/EMIT-retrieval/issues].
+The retrieval algorithm and scripts are designed to work on a Unix-like system (Mac OS, Linux) and require only `bash`, a recent version of Python that includes `pip`, and the ability to download and run the `JuliaUp` installer via curl. Administrator privileges are not needed. If you require this example to work on MS Windows, please get in touch via the [issues tracker](https://github.com/PeterSomkuti/EMIT-retrieval/issues).
 
 
 ## Instructions
