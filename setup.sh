@@ -16,7 +16,6 @@ fi
 
 
 # Check if the correct version is available
-
 if `juliaup status | grep -q ${julia_version}`; then
     echo "### Correct Julia version ${julia_version} found!"
 else
@@ -29,10 +28,14 @@ echo "### Installing required Julia packages."
 julia +${julia_version} --project="./" -e 'using Pkg; Pkg.instantiate();'
 
 # Install gdown to get Google Drive-stored data
-echo "### Installing gdown into a venv"
-python3 -m venv .venv
-source .venv/bin/activate
-pip install gdown
+if [ -f .venv/bin/gdown ]; then
+    echo "### gdown already installed in venv"
+else
+    echo "### Installing gdown into a venv"
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install gdown
+fi
 
 # Download needed additional files
 ./download_additional.sh
