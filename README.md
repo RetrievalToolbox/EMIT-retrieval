@@ -32,9 +32,12 @@ The retrieval algorithm and scripts are designed to work on a Unix-like system (
   - `./setup.sh`
     - This will download and install the most recent and stable Julia (the language in which EMIT-retrieval is written in) distribution, and then download all packages required to run the examples.
     - Further, a new Python virtual environment is created into which the [`gdown`](https://github.com/wkentaro/gdown) module is installed, which lets us download the required additional files.
+- If you **did not** have JuliaUp installed previously, **you must**
+  - Re-start your terminal or re-source your shell!
+  - Run `./setup.sh` again
 
 > [!IMPORTANT]  
-> You **must** re-start or re-source your shell after the first execution of `./setup.sh` to allow for JuliaUp's loaction to propagate into the `$PATH` environment variable. On Mac OS, a simple re-start of the terminal application works.
+> You **must** re-start or re-source your shell after the first execution of `./setup.sh` to allow for JuliaUp's loaction to propagate into the `$PATH` environment variable, if you did not have JuliaUp installed previously. On Mac OS and most Linux distributions, a simple re-start of the terminal application should work.
 
 ### Running the interactive notebook
 
