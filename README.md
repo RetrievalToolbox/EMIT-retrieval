@@ -21,7 +21,7 @@ To run the example(s), some additional data is needed which currently resides on
 
 ## Requirements
 
-The retrieval algorithm and scripts are designed to work on a Unix-like system (Mac OS, Linux) and require only `bash`, a recent version of Python that includes `pip`, and the ability to download and run the `JuliaUp` installer via curl. Administrator privileges are not needed.
+The retrieval algorithm and scripts are designed to work on a Unix-like system (Mac OS, Linux) and require only `bash`, a recent version of Python that includes `pip`, and the ability to download and run the `JuliaUp` installer via curl. Administrator privileges are not needed. If you require this example to work on MS Windows, please get in touch via the (issues tracker)[https://github.com/PeterSomkuti/EMIT-retrieval/issues].
 
 
 ## Instructions
@@ -33,6 +33,8 @@ The retrieval algorithm and scripts are designed to work on a Unix-like system (
     - This will download and install the most recent and stable Julia (the language in which EMIT-retrieval is written in) distribution, and then download all packages required to run the examples.
     - Further, a new Python virtual environment is created into which the [`gdown`](https://github.com/wkentaro/gdown) module is installed, which lets us download the required additional files.
 
+> [!IMPORTANT]  
+> You **must** re-start or re-source your shell after the first execution of `./setup.sh` to allow for JuliaUp's loaction to propagate into the `$PATH` environment variable. On Mac OS, a simple re-start of the terminal application works.
 
 ### Running the interactive notebook
 
