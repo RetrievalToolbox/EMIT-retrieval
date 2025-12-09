@@ -46,13 +46,13 @@ The `setup.sh` script can be run multiple times, should e.g. a download fail due
 
 To run the interactive notebook paste following command into a terminal after navigating into the `EMIT-retrieval` directory that was cloned earlier:
 
-`julia --project=./ -e "using IJulia; IJulia.notebook(dir=pwd())"`
+`julia +1.11.7 --project=./ -e "using IJulia; IJulia.notebook(dir=pwd())"`
 
 Users might be prompted by `IJulia` to download a version of `JupyterLab` if it is not already installed. Once done, a new browser window will be opened with the classic "notebook" interface. From there simply open up the `Demonstration.ipynb` file and follow the instructions within.
 
 For users who prefer the newer "JupyterLab" interface, run the following instead:
 
-`julia --project=./ -e "using IJulia; IJulia.jupyterlab(dir=pwd())"`
+`julia +1.11.7 --project=./ -e "using IJulia; IJulia.jupyterlab(dir=pwd())"`
 
 Should difficulties arise in this step, please refer to [IJulia](https://github.com/JuliaLang/IJulia.jl) or [JupyterLab](https://jupyterlab.readthedocs.io/en/stable/).
 
