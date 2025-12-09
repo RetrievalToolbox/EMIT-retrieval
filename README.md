@@ -24,6 +24,8 @@ The retrieval algorithm and scripts are designed to work on a Unix-like system (
 
 ## Instructions
 
+Note that the following commands will download the JuliaUp installer and prompt the user to install it (unless already on the system), then download a specific version (1.11.7) of Julia. If you work within a shared environment or some HPC system with *modules*, you may want to ensure that you have write permissions in the directory which you choose to install JuliaUp into (by default `~/.juliaup`). Further, conflicts can arise if you e.g. `module load`, override the `$PATH` variable and thus access the "wrong" Julia version.
+
 - First, clone the repository into a location of your choice with
   - `git clone https://github.com/RetrievalToolbox/EMIT-retrieval.git`
 - Navigate into the `EMIT-retrieval` directory and run
