@@ -24,6 +24,8 @@ The retrieval algorithm and scripts are designed to work on a Unix-like system (
 
 ## Instructions
 
+Note that the following commands will download the JuliaUp installer and prompt the user to install it (unless already on the system), then download a specific version (1.11.7) of Julia. If you work within a shared environment or some HPC system with *modules*, you may want to ensure that you have write permissions in the directory which you choose to install JuliaUp into (by default `~/.juliaup`). Further, conflicts can arise if you e.g. `module load`, override the `$PATH` variable and thus access the "wrong" Julia version.
+
 - First, clone the repository into a location of your choice with
   - `git clone https://github.com/RetrievalToolbox/EMIT-retrieval.git`
 - Navigate into the `EMIT-retrieval` directory and run
@@ -46,13 +48,13 @@ The `setup.sh` script can be run multiple times, should e.g. a download fail due
 
 To run the interactive notebook paste following command into a terminal after navigating into the `EMIT-retrieval` directory that was cloned earlier:
 
-`julia --project=./ -e "using IJulia; IJulia.notebook(dir=pwd())"`
+`julia +1.11.7 --project=./ -e "using IJulia; IJulia.notebook(dir=pwd())"`
 
 Users might be prompted by `IJulia` to download a version of `JupyterLab` if it is not already installed. Once done, a new browser window will be opened with the classic "notebook" interface. From there simply open up the `Demonstration.ipynb` file and follow the instructions within.
 
 For users who prefer the newer "JupyterLab" interface, run the following instead:
 
-`julia --project=./ -e "using IJulia; IJulia.jupyterlab(dir=pwd())"`
+`julia +1.11.7 --project=./ -e "using IJulia; IJulia.jupyterlab(dir=pwd())"`
 
 Should difficulties arise in this step, please refer to [IJulia](https://github.com/JuliaLang/IJulia.jl) or [JupyterLab](https://jupyterlab.readthedocs.io/en/stable/).
 
