@@ -119,7 +119,7 @@ function main()
 
     # Calculate bounds to let user know..
     lonmax, latmax = map(x -> maximum(filter(!isnan, x)), (nc_lon, nc_lat))
-    lonmin, latmin = map(x -> maximum(filter(!isnan, x)), (nc_lon, nc_lat))
+    lonmin, latmin = map(x -> minimum(filter(!isnan, x)), (nc_lon, nc_lat))
 
     @info "Bounds of this granule: "
     @info "Longitude " * (@sprintf "[%0.4f, %0.4f]" lonmin lonmax)
