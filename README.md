@@ -37,7 +37,7 @@ Note that the following commands will download the JuliaUp installer and prompt 
   - Run `./setup.sh` again
 
 > [!IMPORTANT]  
-> You **must** re-start or re-source your shell after the first execution of `./setup.sh` to allow for JuliaUp's loaction to propagate into the `$PATH` environment variable, if you did not have JuliaUp installed previously. On Mac OS and most Linux distributions, a simple re-start of the terminal application should work.
+> You **must** re-start or re-source your shell after the first execution of `./setup.sh` to allow for JuliaUp's location to propagate into the `$PATH` environment variable, if you did not have JuliaUp installed previously. On Mac OS and most Linux distributions, a simple re-start of the terminal application should work.
 
 The `setup.sh` script can be run multiple times, should e.g. a download fail due to an instable internet connection.
 
