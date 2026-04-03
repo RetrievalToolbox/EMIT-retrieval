@@ -1,29 +1,22 @@
 #!/bin/bash
 
-julia_version=1.11.7
 NUM_PROCS=${1}
 
 # Define the L1B filename here!
 l1b_fname=L1B/EMIT_L1B_RAD_demo.nc
 
-if (( NUM_PROCS == 0 )); then
 
-    julia +${julia_version} --project=./ main.jl \
-        --L1B ${l1b_fname} \
-        --output demo_results.h5 \
+echo "Spawning with ${NUM_PROCS} additional processes."
 
-else
+julia --project=./ main.jl \
+    --output demo_results.h5 \
+    --L1B ${l1b_fname} \
+    --nprocs ${NUM_PROCS}
 
-    echo "Spawning with ${NUM_PROCS} additional processes."
 
-    julia +${julia_version} --project=./ -p ${NUM_PROCS} main.jl \
-        --output demo_results.h5 \
-        --L1B ${l1b_fname} \
-
-fi
 echo "Turning into GeoTIFF.."
 
-julia +${julia_version} --project=./ produce_geotiff.jl \
+julia --project=./ produce_geotiff.jl \
     --L1 L1B/EMIT_L1B_RAD_demo.nc \
     --L2 demo_results.h5 \
     --out demo.tiff
