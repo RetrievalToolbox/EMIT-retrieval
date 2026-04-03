@@ -24,6 +24,11 @@ function process_args(ARGS_in)
             arg_type = String
             required = true
 
+        "--nprocs"
+            help = "Number of additional processes"
+            arg_type = Int
+            default = 0
+
     end
 
     return parse_args(ARGS_in, args_settings)
