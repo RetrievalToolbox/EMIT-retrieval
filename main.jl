@@ -1,10 +1,20 @@
 using Distributed
+using ArgParse
 
-# Load modules everywhere
+include("args.jl")
+
+# Process cmdline arguments, only root needs this
+args = process_args(ARGS)
+
+# We spawn additional procs here, if the user requests it
+# via the cmdline argument "--nprocs".
+if args["nprocs"] > 0
+    @info "Spawning additional workers .."
+    addprocs(args["nprocs"], exeflags="--project=$(Base.active_project())")
+    @info " .. done!"
+end
+
 @everywhere begin
-
-    using ArchGDAL; const AG = ArchGDAL
-    using ArgParse
     using CSV
     using DataFrames
     using Dates
@@ -24,18 +34,12 @@ using Distributed
 
     using RetrievalToolbox; const RE = RetrievalToolbox
 
-    include("args.jl")
     include("helpers.jl")
     include("forward_model.jl")
-
 end
-
 
 function main()
 
-
-    # Process cmd line arguments
-    args = process_args(ARGS)
 
     # Read the noise coefficients from TXT file
     noise_csv = CSV.File(
@@ -61,7 +65,8 @@ function main()
     @everywhere wavelengths = $wavelengths
 
     # Number of bands
-    @everywhere Npix = length(wavelengths)
+    Npix = length(wavelengths)
+    @everywhere Npix = $Npix
 
     # Read ISRF FWHMs (needed later for creation of ISRFs)
     fwhms = nc_l1b.group["sensor_band_parameters"]["fwhm"].var[:]
@@ -331,7 +336,8 @@ function main()
 
     # Retrieve a polynomial for the Lambertian surface albedo
     sv_surf = RE.SurfaceAlbedoPolynomialSVE[]
-    @everywhere surf_order = 3
+    surf_order = 3
+    @everywhere surf_order = $surf_order
 
     for (win_name, swin) in window_dict
         for o in 0:surf_order
@@ -477,9 +483,10 @@ function main()
 
     # Before going into the scene loop, let's establish the solar strength for each
     # spectral window, so we can calculate a good initial guess for the surface albedo.
-    @everywhere solar_strength_guess = Dict{RE.SpectralWindow, Float64}()
+    solar_strength_guess = Dict{RE.SpectralWindow, Float64}()
+    @everywhere solar_strength_guess = $solar_strength_guess
 
-    for (swin, rt) in buf.rt
+    @everywhere for (swin, rt) in buf.rt
         solar_idx = searchsortedfirst.(Ref(rt.solar_model.ww), swin.ww_grid[:] / 1000.0)
         solar_strength_guess[swin] = maximum(rt.solar_model.irradiance[solar_idx])
     end
